@@ -1,6 +1,8 @@
 var fs = require('fs'),
+http = require('http'),
 request = require('request'),
-Mustache = require('mustache');
+Mustache = require('mustache'),
+Agent = require('agentkeepalive');
 
 module.exports = {
 
@@ -19,6 +21,8 @@ module.exports = {
         }
         console.log('Fetching tiles from: ' + options.url);
 
+        const keepaliveAgent = new Agent();
+
         //set the initial z, x, and y tile names
         //z values are a fixed range defined in options
         tileCoords.z=options.zoom.min;
@@ -26,6 +30,8 @@ module.exports = {
         tileBounds=calcMinAndMaxValues(options.bbox, tileCoords.z);
         tileCoords.x=tileBounds.xMin;
         tileCoords.y=tileBounds.yMin;
+
+        var subDomainIdx = 0;
 
         //start the recursive function that fetches tiles
         getTile();
@@ -37,54 +43,63 @@ module.exports = {
         function getTile() {
             
             //render the url template
-            var url = Mustache.render(options.url,tileCoords);
+            var template = Object.assign({}, tileCoords);
+            if (options.subdomains && options.subdomains.length > 0) {
+                template.s = options.subdomains[subDomainIdx++ % options.subdomains.length];
+            }
+            var url = Mustache.render(options.url,template);
             console.log('Fetching tile: ' + url);
 
             //create z directory in the root directory
             zPath = options.rootDir + '/' + tileCoords.z.toString() + '/';
-            try{fs.mkdirSync(zPath, 0777);}
-            catch (err){
-                if (err.code !== 'EEXIST') callback(err);
-            }
 
-            //create x directory in the z directory
-            xPath = zPath + tileCoords.x.toString();
-            try{fs.mkdirSync(xPath, 0777);}
-            catch (err){
-                if (err.code !== 'EEXIST') callback(err);
-            }
+            fs.mkdir(zPath, 077, function(err) {
+              if (err && err.code !== 'EEXIST') {
+                callback(err);
+              }
 
-            //create writestream as z/x/y.png
-            var ws = fs.createWriteStream(xPath + '/' + tileCoords.y + '.png');
-            ws.on('error', function(err) { console.log(err); });
-            ws.on('finish', function() { 
-                tileCount++;
+              //create x directory in the z directory
+              xPath = zPath + tileCoords.x.toString();
 
-                //increment y
-                tileCoords.y++;
-                if(tileCoords.y<=tileBounds.yMax) {
+              fs.mkdir(xPath, 0777, function(err) {
+                if (err && err.code !== 'EEXIST') {
+                  callback(err);
+                }
+
+                //create writestream as z/x/y.png
+                var file = fs.createWriteStream(xPath + '/' + tileCoords.y + '.png');
+
+                file.on('error', function(err) { console.log(err); });
+                file.on('finish', function() {
+                  tileCount++;
+
+                  //increment y
+                  tileCoords.y++;
+                  if(tileCoords.y<=tileBounds.yMax) {
                     getTile();
-                } else { //increment x
+                  } else { //increment x
                     tileCoords.x++;
                     tileCoords.y=tileBounds.yMin;
                     if(tileCoords.x<=tileBounds.xMax) {
-                        getTile();
+                      getTile();
                     } else { //increment z
-                        tileCoords.z++;
-                        tileBounds=calcMinAndMaxValues(options.bbox, tileCoords.z);
-                        tileCoords.x=tileBounds.xMin;
-                        tileCoords.y=tileBounds.yMin;
+                      tileCoords.z++;
+                      tileBounds=calcMinAndMaxValues(options.bbox, tileCoords.z);
+                      tileCoords.x=tileBounds.xMin;
+                      tileCoords.y=tileBounds.yMin;
 
-                        if(tileCoords.z<=options.zoom.max) {
-                          getTile();  
-                        } else {
-                            console.log('Download Complete! I grabbed ' + tileCount + ' tiles!');
-                            //callback();
-                        }  
+                      if(tileCoords.z<=options.zoom.max) {
+                        getTile();
+                      } else {
+                        console.log('Download Complete! I grabbed ' + tileCount + ' tiles!');
+                        //callback();
+                      }
                     }
-                }
+                  }
+                });
+                request({url: url, agent: keepaliveAgent}).pipe(file);
+              });
             });
-            request(url).pipe(ws);
         }
 
         //given a bounding box and zoom level, calculate x and y tile ranges

@@ -1,12 +1,13 @@
 //downloads rectified aerial photos from NYPL Mapwarper
 
 var options = {
-    url : 'http://maps.nypl.org/warper/layers/tile/909/{z}/{x}/{y}.png',
-    rootDir: 'tiles',
-    bbox : [40.693004,-74.030256,40.719681,-73.909063],
+    url : 	'http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png ',
+    subdomains: ["a", "b", "c"],
+    rootDir: 'C:\\OSMTilesNorthSea',
+    bbox : [51.0, 0.0, 56.0, 10.0],
     zoom : {
-        max : 14,
-        min : 14
+        max : 15,
+        min : 1
     }
 };
 
